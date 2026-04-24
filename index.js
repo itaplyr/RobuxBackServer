@@ -83,8 +83,8 @@ const commands = [
         .setName('link')
         .setDescription('Link your Roblox account to receive cashback')
         .addStringOption(option =>
-            option.setName('username')
-                .setDescription('Your Roblox username')
+            option.setName('userid')
+                .setDescription('Your Roblox UserId (find at roblox.com/user)')
                 .setRequired(true)
         ),
     new SlashCommandBuilder()
@@ -123,7 +123,7 @@ async function registerCommands() {
     }
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     console.log(`🤖 Discord bot logged in as ${client.user.tag}`);
     await registerCommands();
 });
@@ -134,35 +134,35 @@ client.on('interactionCreate', async (interaction) => {
     const { commandName, user } = interaction;
 
     if (commandName === 'link') {
-        const username = interaction.options.getString('username');
+        const userId = interaction.options.getString('userid');
         const userMap = loadUserMap();
-        userMap[username] = user.id;
+        userMap[userId] = user.id;
         saveUserMap(userMap);
 
-        await interaction.reply({ content: `✅ Linked **${username}** to your Discord account! You'll receive cashback DMs.`, ephemeral: true });
+        await interaction.reply({ content: `✅ Linked Roblox account **${userId}** to your Discord account! You'll receive cashback DMs.`, ephemeral: true });
     } else if (commandName === 'balance') {
         const userMap = loadUserMap();
-        const linkedUsername = Object.keys(userMap).find(key => userMap[key] === user.id);
+        const linkedUserId = Object.keys(userMap).find(key => userMap[key] === user.id);
 
-        if (!linkedUsername) {
+        if (!linkedUserId) {
             await interaction.reply({ content: '❌ You haven\'t linked a Roblox account yet. Use /link to link your account.', ephemeral: true });
             return;
         }
 
-        const purchases = loadPurchases().filter(p => p.player === linkedUsername);
+        const purchases = loadPurchases().filter(p => p.userId == linkedUserId);
         const totalCashback = purchases.reduce((sum, p) => {
             const rakeback = typeof p.rakeback === 'number' ? p.rakeback : parseFloat(p.rakeback) || 0;
             return sum + rakeback;
         }, 0);
 
         await interaction.reply({
-            content: `💰 **Balance for ${linkedUsername}**\n\n**Total Purchases:** ${purchases.length}\n**Total Cashback Received:** 🎰 ${totalCashback.toFixed(0)} R$`,
+            content: `💰 **Balance for UserId ${linkedUserId}**\n\n**Total Purchases:** ${purchases.length}\n**Total Cashback Received:** 🎰 ${totalCashback.toFixed(0)} R$`,
             ephemeral: true
         });
     } else if (commandName === 'help') {
         await interaction.reply({
             content: `📖 **Cashback Bot Help**\n\n` +
-                `**/link [username]** - Link your Roblox account to receive cashback on purchases\n` +
+                `**/link [userid]** - Link your Roblox UserId to receive cashback on purchases\n` +
                 `**/balance** - Check your total cashback received\n` +
                 `**/help** - Show this help message\n\n` +
                 `Make purchases in-game and get cashback sent to your DMs!`,
@@ -184,15 +184,16 @@ async function main() {
         });
 
         app.post('/newpurchase', async (req, res) => {
+            console.log(req, res)
             try {
                 const data = req.body;
                 console.log('Received purchase:', data);
 
                 const userMap = loadUserMap();
-                const discordId = userMap[data.player];
+                const discordId = userMap[data.userId];
 
                 if (!discordId) {
-                    console.log(`User ${data.player} not linked to Discord`);
+                    console.log(`User ${data.userId} not linked to Discord`);
                     return res.status(200).json({ success: false, message: 'User not linked' });
                 }
 
@@ -219,17 +220,17 @@ async function main() {
 
         app.post('/link', (req, res) => {
             try {
-                const { robloxUsername, discordId } = req.body;
+                const { robloxUserId, discordId } = req.body;
 
-                if (!robloxUsername || !discordId) {
-                    return res.status(400).json({ success: false, message: 'Missing robloxUsername or discordId' });
+                if (!robloxUserId || !discordId) {
+                    return res.status(400).json({ success: false, message: 'Missing robloxUserId or discordId' });
                 }
 
                 const userMap = loadUserMap();
-                userMap[robloxUsername] = discordId;
+                userMap[robloxUserId] = discordId;
                 saveUserMap(userMap);
 
-                console.log(`Linked ${robloxUsername} -> ${discordId}`);
+                console.log(`Linked ${robloxUserId} -> ${discordId}`);
 
                 return res.status(200).json({ success: true, message: 'Linked successfully' });
             } catch (e) {
@@ -238,10 +239,10 @@ async function main() {
             }
         });
 
-        app.get('/link/:username', (req, res) => {
-            const { username } = req.params;
+        app.get('/link/:userId', (req, res) => {
+            const { userId } = req.params;
             const userMap = loadUserMap();
-            const discordId = userMap[username];
+            const discordId = userMap[userId];
 
             return res.status(200).json({ linked: !!discordId, discordId });
         });
