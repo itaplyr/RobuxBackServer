@@ -15,7 +15,7 @@ const __dirname = dirname(__filename);
 const app = express();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const ADMIN_IDS = [513288134474072064,1497227818000449757]
+const ADMIN_IDS = ['513288134474072064', '1497227818000449757', '1495241364633489448'];
 
 const client = new Client({
     intents: [
@@ -173,7 +173,8 @@ client.on('interactionCreate', async (interaction) => {
             ephemeral: true
         });
     } else if (commandName === 'admin') {
-        if (!ADMIN_IDS.includes(user.id)) {
+        console.log('Admin command check - user.id:', user.id, 'ADMIN_IDS:', ADMIN_IDS);
+        if (!ADMIN_IDS.includes(String(user.id))) {
             await interaction.reply({ content: '❌ You are not authorized to use this command.', ephemeral: true });
             return;
         }
@@ -238,7 +239,7 @@ client.on('interactionCreate', async (interaction) => {
         const purchaseData = msg?.embeds?.[0]?.description || '';
         
         if (customId === 'admin_prev' || customId === 'admin_next') {
-            if (!ADMIN_IDS.includes(user.id)) {
+            if (!ADMIN_IDS.includes(String(user.id))) {
                 await interaction.reply({ content: '❌ You are not authorized.', ephemeral: true });
                 return;
             }
@@ -299,7 +300,7 @@ client.on('interactionCreate', async (interaction) => {
 
             await interaction.update({ embeds: [embed], components: [buttons] });
         } else if (customId === 'admin_profile') {
-            if (!ADMIN_IDS.includes(user.id)) {
+            if (!ADMIN_IDS.includes(String(user.id))) {
                 await interaction.reply({ content: '❌ You are not authorized.', ephemeral: true });
                 return;
             }
