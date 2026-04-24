@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder } from 'discord.js';
 
 dotenv.config();
 
@@ -15,6 +15,7 @@ const __dirname = dirname(__filename);
 const app = express();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
+const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').filter(Boolean);
 
 const client = new Client({
     intents: [
@@ -92,7 +93,10 @@ const commands = [
         .setDescription('Check your cashback balance'),
     new SlashCommandBuilder()
         .setName('help')
-        .setDescription('Get help about the cashback system')
+        .setDescription('Get help about the cashback system'),
+    new SlashCommandBuilder()
+        .setName('admin')
+        .setDescription('Admin panel - view all purchases')
 ];
 
 async function registerCommands() {
@@ -129,9 +133,9 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isCommand()) return;
+    if (!interaction.isCommand() && !interaction.isButton()) return;
 
-    const { commandName, user } = interaction;
+    const { commandName, user, message: msg } = interaction;
 
     if (commandName === 'link') {
         const userId = interaction.options.getString('userid');
@@ -168,6 +172,155 @@ client.on('interactionCreate', async (interaction) => {
                 `Make purchases in-game and get cashback sent to your DMs!`,
             ephemeral: true
         });
+    } else if (commandName === 'admin') {
+        if (!ADMIN_IDS.includes(user.id)) {
+            await interaction.reply({ content: '❌ You are not authorized to use this command.', ephemeral: true });
+            return;
+        }
+
+        const purchases = loadPurchases();
+        const userMap = loadUserMap();
+
+        const itemsPerPage = 5;
+        let currentPage = 0;
+        
+        const formatPurchase = (p, index) => {
+            const robloxUserId = p.userId;
+            const discordId = userMap[robloxUserId];
+            const rakeback = typeof p.rakeback === 'number' ? p.rakeback : parseFloat(p.rakeback) || 0;
+            return `**${index + 1}.** ${p.type} - ${p.assetName || 'N/A'}\n` +
+                `   UserId: ${p.userId} | Price: ${p.price} R$\n` +
+                `   Cashback: 🎰 ${rakeback.toFixed(0)} R$ | ${discordId ? '✅ Paid' : '❌ Not Paid'}\n` +
+                `   Date: ${p.timestamp || 'N/A'}`;
+        };
+
+        const getPageContent = (page) => {
+            const start = page * itemsPerPage;
+            const end = start + itemsPerPage;
+            const pageItems = purchases.slice(start, end);
+            
+            if (pageItems.length === 0) return null;
+            
+            return pageItems.map((p, i) => formatPurchase(p, start + i)).join('\n\n');
+        };
+
+        const totalPages = Math.ceil(purchases.length / itemsPerPage) - 1;
+        const initialContent = getPageContent(0);
+
+        const embed = new EmbedBuilder()
+            .setTitle('📊 Admin Panel - Purchases')
+            .setDescription(initialContent || 'No purchases found.')
+            .setFooter({ text: `Page ${currentPage + 1}/${totalPages + 1} | Total: ${purchases.length} purchases` });
+
+        const buttons = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('admin_prev')
+                    .setLabel('◀')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setDisabled(currentPage === 0),
+                new ButtonBuilder()
+                    .setCustomId('admin_profile')
+                    .setLabel('👤 View Profile')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('admin_next')
+                    .setLabel('▶')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setDisabled(currentPage >= totalPages)
+            );
+
+        await interaction.reply({ embeds: [embed], components: [buttons], ephemeral: true });
+    }
+
+    if (interaction.isButton()) {
+        const customId = interaction.customId;
+        const purchaseData = msg?.embeds?.[0]?.description || '';
+        
+        if (customId === 'admin_prev' || customId === 'admin_next') {
+            if (!ADMIN_IDS.includes(user.id)) {
+                await interaction.reply({ content: '❌ You are not authorized.', ephemeral: true });
+                return;
+            }
+
+            const purchases = loadPurchases();
+            const itemsPerPage = 5;
+            const totalPages = Math.ceil(purchases.length / itemsPerPage) - 1;
+
+            if (customId === 'admin_prev') {
+                currentPage = Math.max(0, currentPage - 1);
+            } else {
+                currentPage = Math.min(totalPages, currentPage + 1);
+            }
+
+            const formatPurchase = (p, index) => {
+                const robloxUserId = p.userId;
+                const userMap = loadUserMap();
+                const discordId = userMap[robloxUserId];
+                const rakeback = typeof p.rakeback === 'number' ? p.rakeback : parseFloat(p.rakeback) || 0;
+                return `**${index + 1}.** ${p.type} - ${p.assetName || 'N/A'}\n` +
+                    `   UserId: ${p.userId} | Price: ${p.price} R$\n` +
+                    `   Cashback: 🎰 ${rakeback.toFixed(0)} R$ | ${discordId ? '✅ Paid' : '❌ Not Paid'}\n` +
+                    `   Date: ${p.timestamp || 'N/A'}`;
+            };
+
+            const getPageContent = (page) => {
+                const start = page * itemsPerPage;
+                const end = start + itemsPerPage;
+                const pageItems = purchases.slice(start, end);
+                if (pageItems.length === 0) return null;
+                return pageItems.map((p, i) => formatPurchase(p, start + i)).join('\n\n');
+            };
+
+            const newContent = getPageContent(currentPage);
+
+            const embed = new EmbedBuilder()
+                .setTitle('📊 Admin Panel - Purchases')
+                .setDescription(newContent || 'No purchases found.')
+                .setFooter({ text: `Page ${currentPage + 1}/${totalPages + 1} | Total: ${purchases.length} purchases` });
+
+            const buttons = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('admin_prev')
+                        .setLabel('◀')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(currentPage === 0),
+                    new ButtonBuilder()
+                        .setCustomId('admin_profile')
+                        .setLabel('👤 View Profile')
+                        .setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder()
+                        .setCustomId('admin_next')
+                        .setLabel('▶')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setDisabled(currentPage >= totalPages)
+                );
+
+            await interaction.update({ embeds: [embed], components: [buttons] });
+        } else if (customId === 'admin_profile') {
+            if (!ADMIN_IDS.includes(user.id)) {
+                await interaction.reply({ content: '❌ You are not authorized.', ephemeral: true });
+                return;
+            }
+
+            const purchases = loadPurchases();
+            const itemsPerPage = 5;
+            const start = currentPage * itemsPerPage;
+            const pageItems = purchases.slice(start, start + itemsPerPage);
+            
+            let userIdList = [...new Set(pageItems.map(p => p.userId))];
+            
+            if (userIdList.length > 0) {
+                const selectedUserId = userIdList[0];
+                await interaction.reply({ 
+                    content: `🔗 **Roblox Profile for UserId ${selectedUserId}**\n\nhttps://www.roblox.com/user.aspx?userid=${selectedUserId}`, 
+                    ephemeral: true 
+                });
+            } else {
+                await interaction.reply({ content: 'No user data available.', ephemeral: true });
+            }
+        }
     }
 });
 
@@ -184,10 +337,16 @@ async function main() {
         });
 
         app.post('/newpurchase', async (req, res) => {
-            console.log(req, res)
             try {
+                const rawBody = req.rawBody;
+                console.log('Raw body:', rawBody);
+                console.log('Parsed body:', req.body);
+                
                 const data = req.body;
-                console.log('Received purchase:', data);
+                if (!data || !data.userId) {
+                    console.log('Invalid purchase data: missing userId, data:', JSON.stringify(data));
+                    return res.status(200).json({ success: false, message: 'Invalid data' });
+                }
 
                 const userMap = loadUserMap();
                 const discordId = userMap[data.userId];
