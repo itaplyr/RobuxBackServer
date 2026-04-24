@@ -15,7 +15,7 @@ const __dirname = dirname(__filename);
 const app = express();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').filter(Boolean);
+const ADMIN_IDS = {513288134474072064,1497227818000449757}
 
 const client = new Client({
     intents: [
